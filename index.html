@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Juno to FM-106</title>
+<meta name="description" content="Play FM-106 on an M-VAVE FM-1 from a real Roland Juno-106: notes, sliders and patch changes, in Chrome.">
+<style>
+  :root { --bg:#16181c; --panel:#202329; --line:#353a44; --text:#e8e8e8; --dim:#9aa0aa; --cyan:#00a5e1; --red:#eb2d1e; --amber:#f5af14; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.45 -apple-system, system-ui, sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:24px 16px 40px; }
+  h1 { margin:0 0 4px; font-size:26px; letter-spacing:.5px; }
+  h1 b { color:var(--cyan); }
+  .stripe { height:4px; background:var(--cyan); margin:10px 0 20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:14px; }
+  label { display:block; color:var(--dim); font-size:13px; text-transform:uppercase; letter-spacing:.08em; margin:10px 0 4px; }
+  select { width:100%; padding:10px; font-size:16px; background:#111317; color:var(--text); border:1px solid var(--line); border-radius:8px; }
+  .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  button { padding:12px 18px; font-size:16px; font-weight:600; border:0; border-radius:8px; cursor:pointer; background:var(--red); color:#fff; }
+  button.off { background:#3a3f49; }
+  .status { font-weight:600; }
+  .ok { color:#5fd38a; } .warn { color:var(--amber); } .bad { color:#ff6b6b; }
+  .counts { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:12px; }
+  .counts div { background:#111317; border-radius:8px; padding:8px; text-align:center; }
+  .counts b { display:block; font-size:22px; }
+  .counts span { color:var(--dim); font-size:12px; }
+  #sliders { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:10px; }
+  .sl { background:#111317; border-radius:8px; padding:6px 8px; font-size:12px; color:var(--dim); transition:background .3s; }
+  .sl b { display:block; font-size:18px; color:var(--text); }
+  .sl i { font-style:normal; color:#5c626c; margin-left:6px; font-size:12px; }
+  .sl.hit { background:#3a2a10; transition:none; }
+  #log { font:12px/1.5 ui-monospace, Menlo, monospace; color:var(--dim); background:#0d0f12; border-radius:8px; padding:10px; height:180px; overflow:auto; white-space:pre; }
+  ol { margin:6px 0 0; padding-left:20px; color:var(--dim); }
+  ol b { color:var(--text); }
+  a { color:var(--cyan); }
+  .check { display:flex; gap:8px; align-items:center; margin-top:10px; color:var(--dim); }
+  .check input { width:18px; height:18px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Juno-106 <b>→</b> FM-106</h1>
+  <div class="stripe"></div>
+  <p style="color:var(--dim);margin:-6px 0 18px">Play <a href="https://github.com/PatttF/fm-106">FM-106</a> on an M-VAVE FM-1 from a real Juno-106: every note, slider, switch and patch change, live. Runs in Chrome or Edge on your computer; nothing to install.</p>
+
+  <div class="card">
+    <div class="status" id="status">Starting…</div>
+    <label for="inSel">From (the Juno: your MIDI interface's input)</label>
+    <select id="inSel"></select>
+    <label for="outSel">To (the FM-1 running FM-106)</label>
+    <select id="outSel"></select>
+    <div class="check"><input type="checkbox" id="convert" checked><span>Juno patch changes load live on FM-106 (never overwrite its saved presets)</span></div>
+    <div class="check"><input type="checkbox" id="follow" checked><span>Switch FM-106 to the same preset number (its number and name show), then play the Juno's exact settings</span></div>
+    <div class="check"><input type="checkbox" id="smooth" checked><span>Steady sliders: ignore the Juno's slider flicker (a step back and forth when a slider isn't moving)</span></div>
+    <label for="dead">Flicker filter strength</label>
+    <select id="dead">
+      <option value="2" selected>Light (ignores 1-step flicker)</option>
+      <option value="3">Normal (ignores up to 2 steps)</option>
+      <option value="4">Strong (ignores up to 3 steps)</option>
+    </select>
+    <div class="row" style="margin-top:14px">
+      <button id="go">Start forwarding</button>
+    </div>
+    <div class="counts">
+      <div><b id="cNotes">0</b><span>notes</span></div>
+      <div><b id="cSliders">0</b><span>sliders / switches</span></div>
+      <div><b id="cPatches">0</b><span>patches</span></div>
+      <div><b id="cOther">0</b><span>other</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <b>Juno sliders</b> <span style="color:var(--dim);font-size:13px">(a slider that flashes while you're not touching it is flickering; grey numbers were filtered out)</span>
+    <div id="sliders"></div>
+  </div>
+
+  <div class="card">
+    <div id="log"></div>
+  </div>
+
+  <div class="card">
+    <b>Setup</b>
+    <ol>
+      <li>Plug the FM-1 (running FM-106) into your computer with USB.</li>
+      <li>Juno <b>MIDI OUT</b> → your MIDI interface's <b>MIDI IN</b>.</li>
+      <li>On the Juno's back, set the <b>MIDI function</b> switch to <b>III</b> (sends sliders and patches).</li>
+      <li>On FM-106's <b>MIDI SETUP</b> page, set <b>PC IN</b> to <b>ON</b>, so it follows the Juno's patch changes.</li>
+      <li>If you also use FM-1 Mirror, set its <b>Keys</b> to <b>None</b>, or you'll hear every note twice.</li>
+      <li>Pick both ports above, press Start. Move a slider on the Juno and watch FM-106 follow.</li>
+    </ol>
+    <p style="color:var(--dim);margin-top:12px;font-size:14px">Patch changes load the Juno's exact settings live on FM-106; they never overwrite its saved presets. The Juno doesn't send patch names, so FM-106 shows its own name for the same preset number.</p>
+  </div>
+
+  <p style="color:var(--dim);font-size:13px;text-align:center;margin-top:24px">
+    By <a href="https://github.com/fatcatstudios-hub">Fat Cat Studios</a> · FM-106 firmware by <a href="https://github.com/PatttF/fm-106">PatttF</a> ·
+    <a href="https://github.com/fatcatstudios-hub/juno-to-fm106">source</a> (MIT)<br>
+    Not affiliated with Roland or M-VAVE. Juno-106 is a trademark of Roland Corporation.
+  </p>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let access = null, input = null, output = null, running = false;
+const counts = { notes:0, sliders:0, patches:0, other:0 };
+const logLines = [];
+
+function setStatus(text, cls) { const s = $('status'); s.textContent = text; s.className = 'status ' + (cls || ''); }
+function hex(d) { return Array.from(d, b => b.toString(16).padStart(2,'0').toUpperCase()).join(' '); }
+function log(line) {
+  logLines.push(line);
+  if (logLines.length > 200) logLines.shift();
+  const el = $('log'); el.textContent = logLines.join('\n'); el.scrollTop = el.scrollHeight;
+}
+function bump(k) { counts[k]++; $('c' + k[0].toUpperCase() + k.slice(1)).textContent = counts[k]; }
+
+function remember(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
+function recall(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+
+function fill() {
+  const prevIn = $('inSel').value || recall('junoIn'), prevOut = $('outSel').value || recall('junoOut');
+  $('inSel').innerHTML = ''; $('outSel').innerHTML = '';
+  for (const p of access.inputs.values()) {
+    if (/fm-1|fm-106|felucca/i.test(p.name)) continue;                   // never take the FM-1's own output back in
+    $('inSel').add(new Option(p.name, p.id));
+  }
+  for (const p of access.outputs.values()) $('outSel').add(new Option(p.name, p.id));
+  if (prevIn && [...$('inSel').options].some(o => o.value === prevIn)) $('inSel').value = prevIn;
+  if (prevOut && [...$('outSel').options].some(o => o.value === prevOut)) $('outSel').value = prevOut;
+  else { const fm = [...$('outSel').options].find(o => /fm-106|fm-1/i.test(o.text)); if (fm) $('outSel').value = fm.value; }
+}
+
+/* The Juno's 16 sliders (IPR controls 0x00-0x0F), each with a flicker filter: a change smaller than the filter's
+ * strength only goes through while the slider is really moving that way (a step in the same direction within
+ * 250 ms of the last one), so a slider resting between two values stops flipping FM-106 back and forth. */
+const NAMES = ['LFO RATE','LFO DELAY','DCO LFO','DCO PWM','NOISE','VCF FREQ','VCF RES','VCF ENV','VCF LFO','VCF KYBD','VCA LEVEL','ENV A','ENV D','ENV S','ENV R','SUB'];
+const sl = NAMES.map((n, i) => {
+  const el = document.createElement('div'); el.className = 'sl';
+  el.innerHTML = n + '<b>–</b>'; $('sliders').appendChild(el);
+  return { el, val: el.querySelector('b'), sent: -1, dir: 0, at: 0, dropped: 0, fade: 0 };
+});
+function flash(s) { s.el.classList.add('hit'); clearTimeout(s.fade); s.fade = setTimeout(() => s.el.classList.remove('hit'), 120); }
+function sliderPasses(ctrl, v) {
+  const s = sl[ctrl], now = performance.now();
+  flash(s);
+  if (!$('smooth').checked || s.sent < 0) { s.sent = v; s.at = now; s.val.textContent = v; return true; }
+  const delta = v - s.sent, dead = +$('dead').value;
+  if (delta === 0) return false;
+  const dir = Math.sign(delta);
+  if (Math.abs(delta) >= dead || (now - s.at < 250 && dir === s.dir)) {
+    s.sent = v; s.dir = dir; s.at = now; s.val.textContent = v;
+    return true;
+  }
+  s.dropped++;
+  s.val.innerHTML = s.sent + '<i>' + v + ' ×' + s.dropped + '</i>';
+  return false;
+}
+
+/* FM-106 takes one SysEx at a time over USB: one that comes while it's still busy with the last is lost. So slider
+ * and switch moves don't go out as they come: each control keeps only its newest value, one goes out every PACE ms
+ * (oldest change first), and the final value of each move is sent again once the control rests, so the end lands. */
+const PACE = 15, SETTLE = 120, RESENDS = 2;
+const pend = new Map();                      // ctrl -> { msg, due resend time, resends left, changed }
+let pacer = 0, lastPc = { pp: -1, at: -1e9 };
+/* FM-106's preset with the Juno's number: bank select (CC 0: 0 factory A, 1 factory B), then the program in it */
+function selectPreset(pp) {
+  pp &= 0x7F;
+  lastPc = { pp, at: performance.now() };
+  try {
+    output.send(Uint8Array.from([0xB0, 0x00, pp >= 64 ? 1 : 0]));
+    output.send(Uint8Array.from([0xC0, pp % 64]));
+  } catch (err) {}
+  log('FM-106 preset ' + junoName(pp).slice(5));
+}
+function queueIpr(ctrl, msg) {
+  const now = performance.now();
+  const p = pend.get(ctrl) || { msg: null, at: 0, left: 0, fresh: false, order: now };
+  if (!p.fresh) p.order = now;
+  p.msg = msg; p.at = now; p.left = RESENDS; p.fresh = true;
+  pend.set(ctrl, p);
+  if (!pacer) pacer = setInterval(pump, PACE);
+}
+function pump() {
+  if (!running || !output) return;
+  const now = performance.now();
+  let pick = null, key;
+  for (const [k, p] of pend) {               // a new value first (oldest first), else a settled one to repeat
+    if (p.fresh) { if (!pick || !pick.fresh || p.order < pick.order) { pick = p; key = k; } }
+    else if (p.left > 0 && now - p.at >= SETTLE && !pick) { pick = p; key = k; }
+  }
+  if (!pick) { if (![...pend.values()].some(p => p.fresh || p.left > 0)) { clearInterval(pacer); pacer = 0; pend.clear(); } return; }
+  if (pick.fresh) pick.fresh = false;
+  else { pick.left--; pick.at = now; }
+  try { output.send(pick.msg); } catch (err) { setStatus('Could not send to ' + output.name + ': ' + err.message, 'bad'); }
+}
+
+/* The Juno's patch number as it shows it: 0-63 group A, 64-127 group B; then bank 1-8 and number 1-8 ("JUNO A11").
+ * FM-106 shows a name carried after the patch's 18 bytes (16 more bytes, zero-padded), so the page adds one. */
+function junoName(pp) {
+  return 'JUNO ' + (pp < 64 ? 'A' : 'B') + (Math.floor((pp % 64) / 8) + 1) + ((pp % 8) + 1);
+}
+function withName(d, name) {
+  const m = new Uint8Array(40);
+  m.set(d.subarray(0, 23));                  // F0 41 31 0n pp, 16 sliders, sw1, sw2
+  for (let i = 0; i < 16; i++) m[23 + i] = i < name.length ? name.charCodeAt(i) & 0x7F : 0;
+  m[39] = 0xF7;
+  return m;
+}
+
+function onMessage(e) {
+  let d = e.data;
+  const st = d[0];
+  if (st === 0xF0 && d[1] === 0x41 && d[2] === 0x32 && d.length >= 6) {
+    if (d[4] <= 0x0F && !sliderPasses(d[4], d[5] & 0x7F)) return;        // the slider's flicker: not sent
+    bump('sliders');
+    queueIpr(d[4], Uint8Array.from(d));                                   // paced, newest value, end resent
+    return;
+  }
+  if (st === 0xFE || st === 0xF8) return;                                // active sensing, clock: not needed
+  if ((st & 0xF0) === 0xC0) {
+    if (!$('follow').checked) { bump('other'); log('program change ' + (d[1] + 1) + ' not sent (preset switching is off)'); return; }
+    selectPreset(d[1]);
+    bump('other');
+    return;
+  }
+  if (st === 0xF0 && d[1] === 0x41) {
+    if (d[2] === 0x32) bump('sliders');
+    else if (d[2] === 0x30 || d[2] === 0x31) {
+      if (d[2] === 0x30 && $('convert').checked) { d = Uint8Array.from(d); d[2] = 0x31; }   // load live, don't store
+      if (d[2] === 0x31 && d.length === 24 && !$('follow').checked) d = withName(d, junoName(d[4]));   // which patch
+      if ($('follow').checked) {               // after FM-106 has switched preset (keeping its name), the Juno's settings
+        if (!(lastPc.pp === d[4] && performance.now() - lastPc.at < 1000)) selectPreset(d[4]);   // not already switched
+        if (d.length >= 21) sl.forEach((s, i) => { s.sent = d[5 + i] & 0x7F; s.dir = 0; s.at = 0; s.dropped = 0; s.val.textContent = s.sent; });
+        bump('patches');
+        log('patch ' + junoName(d[4]).slice(5) + ' → FM-106 (preset + Juno settings)');
+        pend.clear();
+        const apr = Uint8Array.from(d);
+        setTimeout(() => { if (running && output) try { output.send(apr); } catch (err) {} }, 60);
+        setTimeout(() => { if (running && output) try { output.send(apr); } catch (err) {} }, 200);
+        return;
+      }
+      if (d.length >= 21) sl.forEach((s, i) => { s.sent = d[5 + i] & 0x7F; s.dir = 0; s.at = 0; s.dropped = 0; s.val.textContent = s.sent; });
+      bump('patches');
+      log('patch ' + junoName(d[4]).slice(5) + ' → FM-106 (live)');
+      pend.clear();                                                       // older slider moves belong to the old patch
+      const again = Uint8Array.from(d);
+      setTimeout(() => { if (running && output) try { output.send(again); } catch (err) {} }, 150);   // in case FM-106 was busy
+    } else bump('other');
+  } else if ((st & 0xE0) === 0x80) bump('notes');
+  else bump('other');
+  try { output.send(d); } catch (err) { setStatus('Could not send to ' + output.name + ': ' + err.message, 'bad'); }
+}
+
+function stop() {
+  if (input) input.onmidimessage = null;
+  running = false; $('go').textContent = 'Start forwarding'; $('go').classList.remove('off');
+}
+
+$('go').onclick = () => {
+  if (running) { stop(); setStatus('Stopped.', 'warn'); return; }
+  input = access.inputs.get($('inSel').value); output = access.outputs.get($('outSel').value);
+  if (!input || !output) { setStatus('Pick both ports first.', 'warn'); return; }
+  remember('junoIn', input.id); remember('junoOut', output.id);
+  input.onmidimessage = onMessage;
+  running = true; $('go').textContent = 'Stop'; $('go').classList.add('off');
+  setStatus('Forwarding: ' + input.name + ' → ' + output.name, 'ok');
+  log('started ' + new Date().toLocaleTimeString());
+};
+
+if (!navigator.requestMIDIAccess) {
+  setStatus('This browser has no Web MIDI. Open this file in Chrome or Edge.', 'bad');
+} else {
+  navigator.requestMIDIAccess({ sysex: true }).then(a => {
+    access = a; fill();
+    a.onstatechange = () => { fill(); if (running && (input.state === 'disconnected' || output.state === 'disconnected')) { stop(); setStatus('A device was unplugged. Pick the ports and start again.', 'warn'); } };
+    setStatus('Ready. Pick the ports and press Start.', '');
+  }).catch(() => setStatus('MIDI access was refused. Reload and click Allow (it needs SysEx for the Juno\'s sliders).', 'bad'));
+}
+</script>
+</body>
+</html>
